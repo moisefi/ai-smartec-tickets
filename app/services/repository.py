@@ -25,6 +25,7 @@ TEXT_EXTENSIONS = {
     ".yaml",
     ".yml",
 }
+TEXT_FILE_NAMES = {".env", ".env.example", "Dockerfile"}
 IGNORED_DIRS = {".git", ".venv", "__pycache__", "node_modules", "dist", "build", ".pytest_cache", ".ruff_cache"}
 
 
@@ -54,7 +55,11 @@ class RepositoryReader:
         repo_path = self._repo_path(company.repo_url, branch)
         try:
             await self._ensure_checkout(company.repo_url, branch, repo_path)
-            candidate_files = self._candidate_files(repo_path, ticket_text)
+            candidate_files = self._candidate_files(
+                repo_path,
+                ticket_text,
+                company.config_file_paths or [],
+            )
         except Exception as exc:
             return RepositorySnapshot(
                 repo_url=company.repo_url,
@@ -103,24 +108,53 @@ class RepositoryReader:
             detail = stderr.decode("utf-8", errors="ignore") or stdout.decode("utf-8", errors="ignore")
             raise RuntimeError(detail.strip() or "Git operation failed")
 
-    def _candidate_files(self, repo_path: Path, ticket_text: str) -> list[str]:
+    def _candidate_files(
+        self,
+        repo_path: Path,
+        ticket_text: str,
+        config_file_paths: list[str],
+    ) -> list[str]:
         keywords = {
             word.lower()
             for word in ticket_text.replace("_", " ").replace("-", " ").split()
             if len(word) >= 4
         }
+        configured_files = self._configured_files(repo_path, config_file_paths)
         scored_files: list[tuple[int, str]] = []
 
         for path in repo_path.rglob("*"):
-            if not path.is_file() or self._is_ignored(path, repo_path) or path.suffix.lower() not in TEXT_EXTENSIONS:
+            if not path.is_file() or self._is_ignored(path, repo_path) or not self._is_text_file(path):
                 continue
             relative_path = path.relative_to(repo_path).as_posix()
+            if relative_path in configured_files:
+                continue
             score = self._score_file(path, relative_path, keywords)
             if score > 0 or path.suffix.lower() == ".py":
                 scored_files.append((score, relative_path))
 
         scored_files.sort(key=lambda item: (-item[0], item[1]))
-        return [relative_path for _, relative_path in scored_files[:12]]
+        return [*configured_files, *[relative_path for _, relative_path in scored_files]][:12]
+
+    def _configured_files(self, repo_path: Path, config_file_paths: list[str]) -> list[str]:
+        configured_files: list[str] = []
+        for configured_path in config_file_paths:
+            if not configured_path:
+                continue
+            file_path = (repo_path / configured_path).resolve()
+            try:
+                file_path.relative_to(repo_path.resolve())
+            except ValueError:
+                continue
+            if (
+                file_path.is_file()
+                and not self._is_ignored(file_path, repo_path)
+                and self._is_text_file(file_path)
+            ):
+                configured_files.append(file_path.relative_to(repo_path).as_posix())
+        return list(dict.fromkeys(configured_files))
+
+    def _is_text_file(self, path: Path) -> bool:
+        return path.name in TEXT_FILE_NAMES or path.suffix.lower() in TEXT_EXTENSIONS
 
     def _is_ignored(self, path: Path, repo_path: Path) -> bool:
         relative_parts = path.relative_to(repo_path).parts

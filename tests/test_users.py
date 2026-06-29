@@ -85,3 +85,36 @@ async def test_update_user_can_change_password(client: AsyncClient) -> None:
     assert update_response.json()["full_name"] == "Ignacio Editado"
     assert old_login.status_code == 401
     assert new_login.status_code == 200
+
+
+async def test_update_user_can_replace_company_priorities_without_renaming(client: AsyncClient) -> None:
+    """Editing assigned companies keeps the current username valid."""
+    admin_headers = await login_admin(client)
+    company_response = await client.post(
+        "/companies",
+        json={"name": "Naturgy", "code": "NAT", "description": "Empresa demo."},
+    )
+    company_id = company_response.json()["id"]
+    create_response = await client.post(
+        "/users",
+        json={
+            "username": "priority_user",
+            "password": "priority_user",
+            "company_priorities": [{"company_id": company_id, "priority_order": 1}],
+        },
+        headers=admin_headers,
+    )
+    user_id = create_response.json()["id"]
+
+    update_response = await client.put(
+        f"/users/{user_id}",
+        json={
+            "username": "priority_user",
+            "company_priorities": [{"company_id": company_id, "priority_order": 1}],
+        },
+        headers=admin_headers,
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json()["username"] == "priority_user"
+    assert update_response.json()["company_priorities"][0]["company_id"] == company_id

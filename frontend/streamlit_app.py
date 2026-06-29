@@ -66,6 +66,12 @@ def load_users() -> list[dict[str, Any]]:
     return api_request("GET", "/users")
 
 
+def parse_config_paths(value: str) -> list[str]:
+    """Parse comma/newline separated config paths."""
+    normalized = value.replace(",", "\n")
+    return [line.strip() for line in normalized.splitlines() if line.strip()]
+
+
 def load_ticket_analyses(ticket_id: int) -> list[dict[str, Any]]:
     """Fetch analyses for a ticket."""
     return api_request("GET", f"/tickets/{ticket_id}/analyses")
@@ -135,6 +141,7 @@ def render_companies_tab(can_manage: bool) -> None:
                 "descripcion": company["description"],
                 "repo_url": company["repo_url"],
                 "rama_repo": company["repo_branch"],
+                "configs": "\n".join(company["config_file_paths"] or []),
                 "creado": company["created_at"],
             }
             for company in companies
@@ -149,6 +156,10 @@ def render_companies_tab(can_manage: bool) -> None:
             code = st.text_input("Codigo", placeholder="IBE").upper()
             repo_url = st.text_input("URL del repo", placeholder="https://github.com/org/repo.git")
             repo_branch = st.text_input("Rama del repo", placeholder="feature/iberdrola")
+            config_paths = st.text_area(
+                "Ficheros de configuracion",
+                placeholder="config.json, configuracion.py, rutas.py",
+            )
             description = st.text_area("Descripcion", placeholder="Empresa electrica para demo.")
             submitted = st.form_submit_button("Crear empresa")
 
@@ -163,6 +174,7 @@ def render_companies_tab(can_manage: bool) -> None:
                         "description": description or None,
                         "repo_url": repo_url or None,
                         "repo_branch": repo_branch or None,
+                        "config_file_paths": parse_config_paths(config_paths),
                     },
                 )
             except Exception as exc:
@@ -199,6 +211,11 @@ def render_companies_tab(can_manage: bool) -> None:
                     value=selected_company["repo_url"] or "",
                     key=f"edit_company_repo_url_{selected_company_id}",
                 )
+                config_paths = st.text_area(
+                    "Ficheros de configuracion",
+                    value="\n".join(selected_company["config_file_paths"] or []),
+                    key=f"edit_company_config_paths_{selected_company_id}",
+                )
                 description = st.text_area(
                     "Descripcion",
                     value=selected_company["description"] or "",
@@ -217,6 +234,7 @@ def render_companies_tab(can_manage: bool) -> None:
                             "description": description or None,
                             "repo_url": repo_url or None,
                             "repo_branch": repo_branch or None,
+                            "config_file_paths": parse_config_paths(config_paths),
                         },
                     )
                 except Exception as exc:

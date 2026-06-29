@@ -109,8 +109,11 @@ async def update_user(
     update_data = payload.model_dump(exclude_unset=True)
 
     if "company_priorities" in update_data and update_data["company_priorities"] is not None:
-        await validate_company_priorities(db, update_data["company_priorities"])
-        apply_priorities(user, update_data.pop("company_priorities"))
+        priority_data = update_data.pop("company_priorities")
+        await validate_company_priorities(db, priority_data)
+        user.company_priorities.clear()
+        await db.flush()
+        apply_priorities(user, priority_data)
 
     if "password" in update_data and update_data["password"] is not None:
         user.password_hash = hash_password(update_data.pop("password"))

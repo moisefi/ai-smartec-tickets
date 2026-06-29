@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Text
+from sqlalchemy import JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, created_at
@@ -23,6 +23,7 @@ class Company(Base):
     description: Mapped[str | None] = mapped_column(Text)
     repo_url: Mapped[str | None] = mapped_column(String(500))
     repo_branch: Mapped[str | None] = mapped_column(String(255))
+    config_file_paths: Mapped[list[str] | None] = mapped_column(JSON)
     created_at: Mapped[created_at]
 
     tickets: Mapped[list["Ticket"]] = relationship(back_populates="company", cascade="all, delete-orphan")

@@ -17,6 +17,7 @@ async def test_create_and_list_companies(client: AsyncClient) -> None:
         "description": "Empresa electrica para pruebas.",
         "repo_url": "https://github.com/moisefi/Serisa_Control_Fichajes.git",
         "repo_branch": "master",
+        "config_file_paths": ["pyproject.toml", ".env.example"],
     }
 
     create_response = await client.post("/companies", json=payload)
@@ -28,6 +29,7 @@ async def test_create_and_list_companies(client: AsyncClient) -> None:
     assert created["code"] == "IBE"
     assert created["repo_url"] == "https://github.com/moisefi/Serisa_Control_Fichajes.git"
     assert created["repo_branch"] == "master"
+    assert created["config_file_paths"] == ["pyproject.toml", ".env.example"]
     assert list_response.status_code == 200
     assert list_response.json()[0]["id"] == created["id"]
 
