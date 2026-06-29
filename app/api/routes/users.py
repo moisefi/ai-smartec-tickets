@@ -67,6 +67,7 @@ async def create_user(
         password_hash=hash_password(payload.password),
         full_name=payload.full_name,
         role=payload.role,
+        skill_level=payload.skill_level,
         is_active=payload.is_active,
     )
     apply_priorities(user, priority_data)

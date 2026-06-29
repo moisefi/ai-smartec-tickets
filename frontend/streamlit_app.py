@@ -15,6 +15,7 @@ TIMEOUT_SECONDS = 10
 
 TICKET_TYPES = ["historia_usuario", "tarea", "incidencia", "bug"]
 TICKET_PRIORITIES = ["baja", "media", "alta", "urgente"]
+USER_SKILL_LEVELS = ["junior", "mid", "senior"]
 BOARD_STATUSES = ["pendiente", "en_curso", "pruebas_internas", "qa", "desplegado"]
 CLOSED_STATUS = "cierre"
 TICKET_STATUSES = [*BOARD_STATUSES, CLOSED_STATUS]
@@ -289,7 +290,7 @@ def render_tickets_tab() -> None:
 
     if submitted:
         try:
-            api_request(
+            created_ticket = api_request(
                 "POST",
                 "/tickets",
                 json={
@@ -301,10 +302,17 @@ def render_tickets_tab() -> None:
                     "assigned_user_id": user_options[assigned_user],
                 },
             )
+            analyses = load_ticket_analyses(created_ticket["id"])
         except Exception as exc:
             st.error(f"No se pudo crear el ticket: {exc}")
         else:
-            st.success("Ticket creado, asignado y analizado correctamente.")
+            if created_ticket.get("analysis_error"):
+                st.toast(created_ticket["analysis_error"])
+                st.error(created_ticket["analysis_error"])
+            elif analyses:
+                st.success("Ticket creado, asignado y analizado correctamente.")
+            else:
+                st.warning("Ticket creado sin analisis IA. Puedes reintentar la valoracion desde el ticket.")
             st.rerun()
 
 
@@ -387,7 +395,13 @@ function api(path, options = {{}}) {{
   return fetch(`${{state.apiBase}}${{path}}`, Object.assign({{}}, options, {{headers}})).then(async response => {{
     if (!response.ok) {{
       const text = await response.text();
-      throw new Error(`${{response.status}}: ${{text}}`);
+      try {{
+        const payload = JSON.parse(text);
+        throw new Error(payload.detail || text);
+      }} catch (error) {{
+        if (error instanceof SyntaxError) throw new Error(`${{response.status}}: ${{text}}`);
+        throw error;
+      }}
     }}
     if (response.status === 204) return null;
     return response.json();
@@ -471,13 +485,22 @@ function renderAnalysis(ticketId) {{
   const files = analysis.affected_files.map(file => `<li><code>${{escapeHtml(file)}}</code></li>`).join("");
   const risks = analysis.risks.map(risk => `<li>${{escapeHtml(risk)}}</li>`).join("");
   const tasks = analysis.recommended_tasks.map(task => `<li>${{escapeHtml(task)}}</li>`).join("");
-  const changes = analysis.proposed_changes.map(change => (
-    `<h4>${{escapeHtml(change.file)}} (${{escapeHtml(change.branch)}})</h4><pre>${{escapeHtml(change.change)}}</pre>`
-  )).join("");
+  const changes = analysis.proposed_changes.map(change => {{
+    const instructions = (change.instructions || []).map(item => `<li>${{escapeHtml(item)}}</li>`).join("");
+    const currentCode = change.current_code ? `<h5>Codigo actual</h5><pre>${{escapeHtml(change.current_code)}}</pre>` : "";
+    const suggestedCode = change.suggested_code ? `<h5>Codigo propuesto</h5><pre>${{escapeHtml(change.suggested_code)}}</pre>` : "";
+    const diff = change.diff ? `<h5>Diff sugerido</h5><pre>${{escapeHtml(change.diff)}}</pre>` : "";
+    const fallback = !change.current_code && !change.suggested_code && !change.diff ? `<pre>${{escapeHtml(change.change)}}</pre>` : "";
+    return `<h4>${{escapeHtml(change.file)}} (${{escapeHtml(change.branch)}})</h4>
+      ${{change.summary ? `<p>${{escapeHtml(change.summary)}}</p>` : ""}}
+      ${{instructions ? `<h5>Pasos</h5><ul>${{instructions}}</ul>` : ""}}
+      ${{currentCode}}${{suggestedCode}}${{diff}}${{fallback}}`;
+  }}).join("");
   return `
     <div class="analysis">
       <div class="metrics">
         <div class="metric"><strong>Complejidad</strong>${{escapeHtml(analysis.complexity)}}</div>
+        <div class="metric"><strong>Nivel</strong>${{escapeHtml(analysis.required_skill_level || "-")}}</div>
         <div class="metric"><strong>Horas</strong>${{analysis.estimated_hours}}</div>
         <div class="metric"><strong>Ticket</strong>#${{analysis.ticket_id}}</div>
       </div>
@@ -511,11 +534,24 @@ function openModal(ticketId) {{
       ${{renderAnalysis(ticket.id)}}
       <div class="actions">
         ${{state.canManage ? '<button id="deleteTicket" class="danger">Eliminar tarea</button>' : ''}}
+        <button id="analyzeTicket">Analizar IA</button>
         <button id="saveTicket" class="primary">Guardar cambios</button>
       </div>
     </div>
   `;
   document.getElementById("closeModal").onclick = () => backdrop.style.display = "none";
+  document.getElementById("analyzeTicket").onclick = async () => {{
+    try {{
+      const analysis = await api(`/tickets/${{ticket.id}}/analyze`, {{method: "POST"}});
+      const updated = await api(`/tickets/${{ticket.id}}`);
+      state.analysesByTicket[String(ticket.id)] = [analysis, ...(state.analysesByTicket[String(ticket.id)] || [])];
+      tickets = tickets.map(item => item.id === updated.id ? updated : item);
+      renderBoard();
+      openModal(ticket.id);
+    }} catch (error) {{
+      alert(`No se pudo analizar el ticket: ${{error.message}}`);
+    }}
+  }};
   document.getElementById("saveTicket").onclick = async () => {{
     const assignedValue = document.getElementById("editAssignee").value;
     const payload = {{
@@ -678,6 +714,7 @@ def render_users_tab(can_manage: bool) -> None:
                 "usuario": user["username"],
                 "nombre": user["full_name"],
                 "rol": user["role"],
+                "nivel": user["skill_level"],
                 "activo": user["is_active"],
                 "prioridades_empresas": " > ".join(priority_codes) if priority_codes else "-",
                 "creado": user["created_at"],
@@ -692,6 +729,7 @@ def render_users_tab(can_manage: bool) -> None:
             password = st.text_input("Password", type="password")
             full_name = st.text_input("Nombre completo", placeholder="Nuevo Usuario")
             role = st.selectbox("Rol", options=["member", "admin"])
+            skill_level = st.selectbox("Nivel", options=USER_SKILL_LEVELS, index=1)
             is_active = st.checkbox("Activo", value=True)
 
             priority_payload: list[dict[str, int]] = []
@@ -715,6 +753,7 @@ def render_users_tab(can_manage: bool) -> None:
                         "password": password,
                         "full_name": full_name or None,
                         "role": role,
+                        "skill_level": skill_level,
                         "is_active": is_active,
                         "company_priorities": priority_payload,
                     },
@@ -760,6 +799,12 @@ def render_users_tab(can_manage: bool) -> None:
                     index=["member", "admin"].index(selected_user["role"]),
                     key=f"edit_role_{selected_user_id}",
                 )
+                skill_level = st.selectbox(
+                    "Nivel",
+                    options=USER_SKILL_LEVELS,
+                    index=USER_SKILL_LEVELS.index(selected_user["skill_level"]),
+                    key=f"edit_skill_level_{selected_user_id}",
+                )
                 is_active = st.checkbox(
                     "Activo",
                     value=selected_user["is_active"],
@@ -784,6 +829,7 @@ def render_users_tab(can_manage: bool) -> None:
                     "username": username,
                     "full_name": full_name or None,
                     "role": role,
+                    "skill_level": skill_level,
                     "is_active": is_active,
                     "company_priorities": [
                         {"company_id": company_labels[label], "priority_order": index}

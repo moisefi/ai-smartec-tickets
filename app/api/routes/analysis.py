@@ -6,13 +6,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.routes.tickets import user_facing_analysis_error
 from app.db.models.ticket import Ticket
 from app.db.models.ticket_analysis import TicketAnalysis
 from app.db.session import get_db
 from app.schemas.analysis import TicketAnalysisRead
 from app.services.analysis import TicketImpactAnalyzer
 from app.services.analyzer_factory import get_configured_analyzer
-from app.services.ticket_analysis_workflow import generate_and_store_analysis
+from app.services.ticket_analysis_workflow import assign_ticket_from_analysis, generate_and_store_analysis
 
 router = APIRouter()
 
@@ -32,13 +33,18 @@ async def analyze_ticket(
     ticket = await db.get(Ticket, ticket_id, options=[selectinload(Ticket.company)])
     if ticket is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
+    await db.refresh(ticket, attribute_names=["company"])
 
     try:
         analysis = await generate_and_store_analysis(db, ticket, analyzer)
+        await assign_ticket_from_analysis(db, ticket, analysis)
         await db.commit()
-    except Exception:
+    except Exception as exc:
         await db.rollback()
-        raise
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=user_facing_analysis_error(exc),
+        ) from exc
     await db.refresh(analysis)
     return analysis
 

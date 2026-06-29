@@ -47,3 +47,4 @@ class TicketRead(TicketBase):
     status: TicketStatus
     created_at: datetime
     updated_at: datetime
+    analysis_error: str | None = None

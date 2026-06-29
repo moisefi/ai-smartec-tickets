@@ -20,6 +20,9 @@ async def test_seed_users_are_available(client: AsyncClient) -> None:
     assert roles["admin"] == "admin"
     assert roles["Sergio"] == "admin"
     assert roles["Ignacio"] == "member"
+    skill_levels = {user["username"]: user["skill_level"] for user in response.json()}
+    assert skill_levels["Sergio"] == "senior"
+    assert skill_levels["Ignacio"] == "mid"
 
 
 async def test_create_user_with_company_priority(client: AsyncClient) -> None:
@@ -37,6 +40,7 @@ async def test_create_user_with_company_priority(client: AsyncClient) -> None:
             "username": "demo",
             "password": "demo",
             "full_name": "Usuario Demo",
+            "skill_level": "junior",
             "company_priorities": [{"company_id": company_id, "priority_order": 1}],
         },
         headers=admin_headers,
@@ -45,6 +49,7 @@ async def test_create_user_with_company_priority(client: AsyncClient) -> None:
     assert response.status_code == 201
     body = response.json()
     assert body["username"] == "demo"
+    assert body["skill_level"] == "junior"
     assert body["company_priorities"][0]["company_id"] == company_id
 
 
@@ -75,7 +80,7 @@ async def test_update_user_can_change_password(client: AsyncClient) -> None:
 
     update_response = await client.put(
         "/users/3",
-        json={"full_name": "Ignacio Editado", "password": "nueva-clave"},
+        json={"full_name": "Ignacio Editado", "password": "nueva-clave", "skill_level": "senior"},
         headers=admin_headers,
     )
     old_login = await client.post("/auth/login", json={"username": "Ignacio", "password": "ignacio"})
@@ -83,6 +88,7 @@ async def test_update_user_can_change_password(client: AsyncClient) -> None:
 
     assert update_response.status_code == 200
     assert update_response.json()["full_name"] == "Ignacio Editado"
+    assert update_response.json()["skill_level"] == "senior"
     assert old_login.status_code == 401
     assert new_login.status_code == 200
 

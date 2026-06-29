@@ -21,6 +21,14 @@ class UserRole(enum.StrEnum):
     MEMBER = "member"
 
 
+class UserSkillLevel(enum.StrEnum):
+    """Supported user seniority levels for ticket assignment."""
+
+    JUNIOR = "junior"
+    MID = "mid"
+    SENIOR = "senior"
+
+
 class User(Base):
     """Internal user that can own tickets and company priorities."""
 
@@ -33,6 +41,11 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, name="user_role", values_callable=enum_values),
         default=UserRole.MEMBER,
+        nullable=False,
+    )
+    skill_level: Mapped[UserSkillLevel] = mapped_column(
+        Enum(UserSkillLevel, name="user_skill_level", values_callable=enum_values),
+        default=UserSkillLevel.MID,
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)

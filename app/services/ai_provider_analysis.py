@@ -99,6 +99,17 @@ class AIProviderTicketImpactAnalyzer(TicketImpactAnalyzer):
                     "content": (
                         "Eres un asistente senior de ingenieria de software. "
                         "Analiza tickets contra codigo Python real. "
+                        "Estima horas, complejidad y nivel requerido segun impacto tecnico, riesgo, "
+                        "cantidad de ficheros afectados y necesidad de criterio arquitectonico. "
+                        "Para cada cambio propuesto, localiza exactamente el bloque de codigo a tocar. "
+                        "Devuelve current_code con el fragmento actual copiado del contexto, suggested_code con "
+                        "el reemplazo propuesto e instructions con pasos concretos. "
+                        "No respondas con frases genericas como 'revisar este archivo' si hay codigo suficiente. "
+                        "Para cada cambio propuesto, devuelve tambien un diff unificado estilo git diff. "
+                        "El diff debe mostrar lineas de contexto, lineas eliminadas con '-' y lineas nuevas con '+'. "
+                        "Si no tienes suficiente contexto para un diff fiable, deja diff/current_code/suggested_code "
+                        "vacios y explica el motivo "
+                        "en summary/change. "
                         "Debes proponer cambios concretos de solo lectura: no ejecutes comandos, "
                         "no modifiques archivos, "
                         "no inventes ficheros si el contexto no los soporta. Devuelve JSON valido segun el esquema."
@@ -128,6 +139,7 @@ class AIProviderTicketImpactAnalyzer(TicketImpactAnalyzer):
                         "additionalProperties": False,
                         "properties": {
                             "complexity": {"type": "string", "enum": ["baja", "media", "alta"]},
+                            "required_skill_level": {"type": "string", "enum": ["junior", "mid", "senior"]},
                             "estimated_hours": {"type": "integer"},
                             "affected_files": {"type": "array", "items": {"type": "string"}},
                             "risks": {"type": "array", "items": {"type": "string"}},
@@ -141,14 +153,29 @@ class AIProviderTicketImpactAnalyzer(TicketImpactAnalyzer):
                                     "properties": {
                                         "file": {"type": "string"},
                                         "branch": {"type": "string"},
+                                        "summary": {"type": "string"},
                                         "change": {"type": "string"},
+                                        "current_code": {"type": "string"},
+                                        "suggested_code": {"type": "string"},
+                                        "instructions": {"type": "array", "items": {"type": "string"}},
+                                        "diff": {"type": "string"},
                                     },
-                                    "required": ["file", "branch", "change"],
+                                    "required": [
+                                        "file",
+                                        "branch",
+                                        "summary",
+                                        "change",
+                                        "current_code",
+                                        "suggested_code",
+                                        "instructions",
+                                        "diff",
+                                    ],
                                 },
                             },
                         },
                         "required": [
                             "complexity",
+                            "required_skill_level",
                             "estimated_hours",
                             "affected_files",
                             "risks",
@@ -203,6 +230,12 @@ class AIProviderTicketImpactAnalyzer(TicketImpactAnalyzer):
         proposed_changes = parsed.get("proposed_changes") or []
         for change in proposed_changes:
             change.setdefault("branch", branch)
+            change.setdefault("summary", change.get("change", ""))
+            change.setdefault("change", change.get("summary", ""))
+            change.setdefault("current_code", "")
+            change.setdefault("suggested_code", "")
+            change.setdefault("instructions", [])
+            change.setdefault("diff", "")
 
         affected_files = parsed.get("affected_files") or []
         if not affected_files and snapshot and snapshot.candidate_files:
@@ -210,6 +243,7 @@ class AIProviderTicketImpactAnalyzer(TicketImpactAnalyzer):
 
         return GeneratedTicketAnalysis(
             complexity=str(parsed["complexity"]),
+            required_skill_level=str(parsed["required_skill_level"]),
             estimated_hours=max(1, int(parsed["estimated_hours"])),
             affected_files=list(affected_files),
             risks=list(parsed.get("risks") or []),

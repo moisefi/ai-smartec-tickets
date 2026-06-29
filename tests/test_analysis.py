@@ -2,9 +2,14 @@
 
 from httpx import AsyncClient
 
+from app.api.routes.analysis import get_analyzer
+from app.main import app
+from app.services.analysis import MockTicketImpactAnalyzer
+
 
 async def test_analyze_ticket(client: AsyncClient) -> None:
     """Analyze endpoint persists and returns mock technical analysis."""
+    app.dependency_overrides[get_analyzer] = lambda: MockTicketImpactAnalyzer()
     company_response = await client.post(
         "/companies",
         json={"name": "EDP", "code": "EDP", "description": "Empresa electrica."},
@@ -28,9 +33,15 @@ async def test_analyze_ticket(client: AsyncClient) -> None:
     body = response.json()
     assert body["ticket_id"] == ticket_id
     assert body["complexity"] == "alta"
+    assert body["required_skill_level"] == "senior"
     assert body["estimated_hours"] >= 28
     assert "app/api/routes/tickets.py" in body["affected_files"]
     assert body["risks"]
     assert body["recommended_tasks"]
     assert body["proposed_changes"]
+    assert "summary" in body["proposed_changes"][0]
+    assert "current_code" in body["proposed_changes"][0]
+    assert "suggested_code" in body["proposed_changes"][0]
+    assert "instructions" in body["proposed_changes"][0]
+    assert "diff" in body["proposed_changes"][0]
     assert "Pendiente de desarrollar" in body["proposed_changes"][0]["change"]

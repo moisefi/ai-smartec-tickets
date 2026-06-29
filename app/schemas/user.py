@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.db.models.user import UserRole
+from app.db.models.user import UserRole, UserSkillLevel
 
 
 class UserCompanyPriorityBase(BaseModel):
@@ -33,6 +33,7 @@ class UserBase(BaseModel):
     username: str = Field(min_length=3, max_length=100)
     full_name: str | None = Field(default=None, max_length=255)
     role: UserRole = UserRole.MEMBER
+    skill_level: UserSkillLevel = UserSkillLevel.MID
     is_active: bool = True
 
 
@@ -50,6 +51,7 @@ class UserUpdate(BaseModel):
     password: str | None = Field(default=None, min_length=3, max_length=128)
     full_name: str | None = Field(default=None, max_length=255)
     role: UserRole | None = None
+    skill_level: UserSkillLevel | None = None
     is_active: bool | None = None
     company_priorities: list[UserCompanyPriorityCreate] | None = None
 

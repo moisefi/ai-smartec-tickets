@@ -1,5 +1,6 @@
 """Ticket CRUD routes."""
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -14,10 +15,22 @@ from app.db.models.user import User
 from app.db.session import get_db
 from app.schemas.ticket import TicketCreate, TicketRead, TicketUpdate
 from app.services.analyzer_factory import get_configured_analyzer
-from app.services.assignment import auto_assign_user_id
-from app.services.ticket_analysis_workflow import generate_and_store_analysis
+from app.services.ticket_analysis_workflow import assign_ticket_from_analysis, generate_and_store_analysis
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def user_facing_analysis_error(exc: Exception) -> str:
+    """Return a concise user-facing reason for an AI analysis failure."""
+    detail = str(exc).lower()
+    if "no hay ia configurada" in detail or "api_key" in detail:
+        return "No se ha podido analizar con la IA: no hay IA configurada."
+    if "401" in detail or "403" in detail or "auth" in detail or "unauthorized" in detail:
+        return "No se ha podido analizar con la IA: error de autenticacion."
+    if "402" in detail or "429" in detail or "quota" in detail or "billing" in detail or "token" in detail:
+        return "No se ha podido analizar con la IA: falta de tokens o credito disponible."
+    return "No se ha podido analizar con la IA: error generico."
 
 
 async def ensure_company_exists(db: AsyncSession, company_id: int) -> None:
@@ -34,13 +47,10 @@ async def ensure_user_exists(db: AsyncSession, user_id: int | None) -> None:
 
 @router.post("", response_model=TicketRead, status_code=status.HTTP_201_CREATED)
 async def create_ticket(payload: TicketCreate, db: Annotated[AsyncSession, Depends(get_db)]) -> Ticket:
-    """Create a ticket, auto-assign it, and generate its first impact analysis."""
+    """Create a ticket and attempt its first impact analysis."""
     await ensure_company_exists(db, payload.company_id)
     await ensure_user_exists(db, payload.assigned_user_id)
     ticket_data = payload.model_dump()
-    if ticket_data["assigned_user_id"] is None:
-        ticket_data["assigned_user_id"] = await auto_assign_user_id(db, payload.company_id)
-
     if ticket_data["assigned_user_id"] is not None:
         assigned_user = await db.get(User, ticket_data["assigned_user_id"])
         ticket_data["assigned_to"] = assigned_user.username if assigned_user else None
@@ -50,7 +60,13 @@ async def create_ticket(payload: TicketCreate, db: Annotated[AsyncSession, Depen
     try:
         await db.flush()
         await db.refresh(ticket, attribute_names=["company"])
-        await generate_and_store_analysis(db, ticket, get_configured_analyzer())
+        try:
+            analysis = await generate_and_store_analysis(db, ticket, get_configured_analyzer())
+        except Exception as exc:
+            logger.warning("Ticket %s was created without AI analysis", ticket.id, exc_info=True)
+            ticket.analysis_error = user_facing_analysis_error(exc)
+        else:
+            await assign_ticket_from_analysis(db, ticket, analysis)
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()
@@ -58,9 +74,6 @@ async def create_ticket(payload: TicketCreate, db: Annotated[AsyncSession, Depen
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Ticket could not be created with the provided data",
         ) from exc
-    except Exception:
-        await db.rollback()
-        raise
     await db.refresh(ticket)
     return ticket
 
@@ -78,6 +91,7 @@ async def get_ticket(ticket_id: int, db: Annotated[AsyncSession, Depends(get_db)
     ticket = await db.get(Ticket, ticket_id)
     if ticket is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
+    await db.refresh(ticket)
     return ticket
 
 

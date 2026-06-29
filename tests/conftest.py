@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 import app.db.models  # noqa: F401
 from app.core.security import hash_password
 from app.db.base import Base
-from app.db.models.user import User, UserRole
+from app.db.models.user import User, UserRole, UserSkillLevel
 from app.db.session import get_db
 from app.main import app
 
@@ -38,9 +38,21 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
                     password_hash=hash_password("admin"),
                     full_name="Administrador",
                     role=UserRole.ADMIN,
+                    skill_level=UserSkillLevel.SENIOR,
                 ),
-                User(username="Sergio", password_hash=hash_password("sergio"), full_name="Sergio", role=UserRole.ADMIN),
-                User(username="Ignacio", password_hash=hash_password("ignacio"), full_name="Ignacio"),
+                User(
+                    username="Sergio",
+                    password_hash=hash_password("sergio"),
+                    full_name="Sergio",
+                    role=UserRole.ADMIN,
+                    skill_level=UserSkillLevel.SENIOR,
+                ),
+                User(
+                    username="Ignacio",
+                    password_hash=hash_password("ignacio"),
+                    full_name="Ignacio",
+                    skill_level=UserSkillLevel.MID,
+                ),
             ],
         )
         await session.commit()
