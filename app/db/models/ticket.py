@@ -20,7 +20,6 @@ class TicketType(enum.StrEnum):
     HISTORIA_USUARIO = "historia_usuario"
     TAREA = "tarea"
     INCIDENCIA = "incidencia"
-    BUG = "bug"
 
 
 class TicketStatus(enum.StrEnum):

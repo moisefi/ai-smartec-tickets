@@ -11,11 +11,19 @@ import streamlit.components.v1 as components
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 PUBLIC_API_BASE_URL = os.getenv("PUBLIC_API_BASE_URL", API_BASE_URL).replace("http://api:8000", "http://localhost:8000")
-TIMEOUT_SECONDS = 10
+TIMEOUT_SECONDS = 120
 
-TICKET_TYPES = ["historia_usuario", "tarea", "incidencia", "bug"]
+TICKET_TYPES = ["historia_usuario", "tarea", "incidencia"]
 TICKET_PRIORITIES = ["baja", "media", "alta", "urgente"]
 USER_SKILL_LEVELS = ["junior", "mid", "senior"]
+TICKET_DESCRIPTION_TEMPLATE = (
+    "Pantalla/flujo afectado: \n"
+    "Accion del usuario: \n"
+    "Texto visible o boton/campo: \n"
+    "Error o comportamiento actual: \n"
+    "Resultado esperado: \n"
+    "Notas tecnicas o archivos relacionados: "
+)
 BOARD_STATUSES = ["pendiente", "en_curso", "pruebas_internas", "qa", "desplegado"]
 CLOSED_STATUS = "cierre"
 TICKET_STATUSES = [*BOARD_STATUSES, CLOSED_STATUS]
@@ -71,6 +79,11 @@ def parse_config_paths(value: str) -> list[str]:
     """Parse comma/newline separated config paths."""
     normalized = value.replace(",", "\n")
     return [line.strip() for line in normalized.splitlines() if line.strip()]
+
+
+def normalize_text(value: str) -> str:
+    """Collapse whitespace before sending text to the API."""
+    return " ".join(value.split())
 
 
 def load_ticket_analyses(ticket_id: int) -> list[dict[str, Any]]:
@@ -277,10 +290,11 @@ def render_tickets_tab() -> None:
     user_options = {"Asignacion automatica": None} | {user["username"]: user["id"] for user in users if user["is_active"]}
 
     with st.form("create_ticket_form", clear_on_submit=True):
-        title = st.text_input("Titulo", placeholder="Alta de nuevo suministro")
+        title = st.text_input("Titulo", placeholder="Introduce el titulo del ticket...")
         description = st.text_area(
             "Descripcion",
-            placeholder="Gestionar validaciones tecnicas para un nuevo punto de suministro.",
+            value=st.session_state.get("ticket_description_template", TICKET_DESCRIPTION_TEMPLATE),
+            key="ticket_description_template",
         )
         company_label = st.selectbox("Empresa", options=list(company_options))
         ticket_type = st.selectbox("Tipo", options=TICKET_TYPES)
@@ -290,19 +304,20 @@ def render_tickets_tab() -> None:
 
     if submitted:
         try:
-            created_ticket = api_request(
-                "POST",
-                "/tickets",
-                json={
-                    "title": title,
-                    "description": description,
-                    "company_id": company_options[company_label],
-                    "type": ticket_type,
-                    "priority": priority,
-                    "assigned_user_id": user_options[assigned_user],
-                },
-            )
-            analyses = load_ticket_analyses(created_ticket["id"])
+            with st.spinner("Cargando respuesta de la IA..."):
+                created_ticket = api_request(
+                    "POST",
+                    "/tickets",
+                    json={
+                        "title": title,
+                        "description": normalize_text(description),
+                        "company_id": company_options[company_label],
+                        "type": ticket_type,
+                        "priority": priority,
+                        "assigned_user_id": user_options[assigned_user],
+                    },
+                )
+                analyses = load_ticket_analyses(created_ticket["id"])
         except Exception as exc:
             st.error(f"No se pudo crear el ticket: {exc}")
         else:
@@ -313,6 +328,8 @@ def render_tickets_tab() -> None:
                 st.success("Ticket creado, asignado y analizado correctamente.")
             else:
                 st.warning("Ticket creado sin analisis IA. Puedes reintentar la valoracion desde el ticket.")
+            st.session_state["active_tab"] = "Tablero"
+            st.session_state.pop("active_tab_picker", None)
             st.rerun()
 
 
@@ -487,14 +504,16 @@ function renderAnalysis(ticketId) {{
   const tasks = analysis.recommended_tasks.map(task => `<li>${{escapeHtml(task)}}</li>`).join("");
   const changes = analysis.proposed_changes.map(change => {{
     const instructions = (change.instructions || []).map(item => `<li>${{escapeHtml(item)}}</li>`).join("");
+    const lines = change.line_start && change.line_end ? `<span class="pill">Lineas ${{change.line_start}}-${{change.line_end}}</span>` : "";
+    const targetPath = change.target_path ? `<span class="pill">${{escapeHtml(change.target_path)}}</span>` : "";
     const currentCode = change.current_code ? `<h5>Codigo actual</h5><pre>${{escapeHtml(change.current_code)}}</pre>` : "";
     const suggestedCode = change.suggested_code ? `<h5>Codigo propuesto</h5><pre>${{escapeHtml(change.suggested_code)}}</pre>` : "";
-    const diff = change.diff ? `<h5>Diff sugerido</h5><pre>${{escapeHtml(change.diff)}}</pre>` : "";
-    const fallback = !change.current_code && !change.suggested_code && !change.diff ? `<pre>${{escapeHtml(change.change)}}</pre>` : "";
+    const fallback = !change.current_code && !change.suggested_code ? `<pre>${{escapeHtml(change.change)}}</pre>` : "";
     return `<h4>${{escapeHtml(change.file)}} (${{escapeHtml(change.branch)}})</h4>
+      <div class="meta">${{lines}}${{targetPath}}</div>
       ${{change.summary ? `<p>${{escapeHtml(change.summary)}}</p>` : ""}}
       ${{instructions ? `<h5>Pasos</h5><ul>${{instructions}}</ul>` : ""}}
-      ${{currentCode}}${{suggestedCode}}${{diff}}${{fallback}}`;
+      ${{currentCode}}${{suggestedCode}}${{fallback}}`;
   }}).join("");
   return `
     <div class="analysis">
@@ -541,6 +560,9 @@ function openModal(ticketId) {{
   `;
   document.getElementById("closeModal").onclick = () => backdrop.style.display = "none";
   document.getElementById("analyzeTicket").onclick = async () => {{
+    const button = document.getElementById("analyzeTicket");
+    button.disabled = true;
+    button.textContent = "Cargando respuesta de la IA...";
     try {{
       const analysis = await api(`/tickets/${{ticket.id}}/analyze`, {{method: "POST"}});
       const updated = await api(`/tickets/${{ticket.id}}`);
@@ -549,6 +571,8 @@ function openModal(ticketId) {{
       renderBoard();
       openModal(ticket.id);
     }} catch (error) {{
+      button.disabled = false;
+      button.textContent = "Analizar IA";
       alert(`No se pudo analizar el ticket: ${{error.message}}`);
     }}
   }};
@@ -878,19 +902,29 @@ def main() -> None:
     tab_names = ["Tablero", "Tareas cerradas", "Crear ticket", "Empresas"]
     if can_manage:
         tab_names.append("Admin usuarios")
-    tabs = st.tabs(tab_names)
+    active_tab = st.session_state.get("active_tab", "Tablero")
+    if active_tab not in tab_names:
+        active_tab = "Tablero"
+    selected_tab = st.radio(
+        "Vista",
+        options=tab_names,
+        index=tab_names.index(active_tab),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="active_tab_picker",
+    )
+    st.session_state["active_tab"] = selected_tab
 
-    with tabs[0]:
+    if selected_tab == "Tablero":
         render_board_tab(can_manage)
-    with tabs[1]:
+    elif selected_tab == "Tareas cerradas":
         render_closed_tickets_tab()
-    with tabs[2]:
+    elif selected_tab == "Crear ticket":
         render_tickets_tab()
-    with tabs[3]:
+    elif selected_tab == "Empresas":
         render_companies_tab(can_manage)
-    if can_manage:
-        with tabs[4]:
-            render_users_tab(can_manage)
+    elif selected_tab == "Admin usuarios" and can_manage:
+        render_users_tab(can_manage)
 
 
 if __name__ == "__main__":

@@ -62,7 +62,7 @@ class MockTicketImpactAnalyzer(TicketImpactAnalyzer):
         )
 
     def _complexity(self, ticket: Ticket) -> str:
-        if ticket.priority is TicketPriority.URGENTE or ticket.type in {TicketType.HISTORIA_USUARIO, TicketType.BUG}:
+        if ticket.priority is TicketPriority.URGENTE or ticket.type is TicketType.HISTORIA_USUARIO:
             return "alta"
         if ticket.type in {TicketType.TAREA, TicketType.INCIDENCIA}:
             return "media"
@@ -93,8 +93,6 @@ class MockTicketImpactAnalyzer(TicketImpactAnalyzer):
             "app/db/models/ticket.py",
             "tests/test_tickets.py",
         ]
-        if ticket.type is TicketType.BUG:
-            common_files.extend(["app/services/bug_triage.py", "tests/test_bug_triage.py"])
         if ticket.type is TicketType.HISTORIA_USUARIO:
             common_files.append("app/services/user_story_workflow.py")
         return common_files
@@ -121,8 +119,8 @@ class MockTicketImpactAnalyzer(TicketImpactAnalyzer):
         risks = ["Cambios en validaciones pueden afectar tickets existentes."]
         if ticket.priority is TicketPriority.URGENTE:
             risks.append("La urgencia reduce margen para pruebas manuales exhaustivas.")
-        if ticket.type is TicketType.BUG:
-            risks.append("Debe reproducirse el bug antes de cerrar la correccion.")
+        if ticket.type is TicketType.INCIDENCIA:
+            risks.append("Debe reproducirse la incidencia antes de cerrar la correccion.")
         return risks
 
     def _proposed_changes(
@@ -137,6 +135,9 @@ class MockTicketImpactAnalyzer(TicketImpactAnalyzer):
                 {
                     "file": "repo_no_disponible",
                     "branch": repository_snapshot.branch,
+                    "line_start": 0,
+                    "line_end": 0,
+                    "target_path": "",
                     "summary": "No se pudo leer el repositorio configurado.",
                     "change": (
                         "No se ha podido leer el repositorio configurado. Revisa que la URL sea accesible, "
@@ -146,7 +147,6 @@ class MockTicketImpactAnalyzer(TicketImpactAnalyzer):
                     "current_code": "",
                     "suggested_code": "",
                     "instructions": ["Corregir la configuracion del repositorio y reintentar el analisis IA."],
-                    "diff": "",
                 },
             ]
         if repository_snapshot and affected_files:
@@ -154,6 +154,9 @@ class MockTicketImpactAnalyzer(TicketImpactAnalyzer):
                 {
                     "file": file_path,
                     "branch": repository_snapshot.branch,
+                    "line_start": 0,
+                    "line_end": 0,
+                    "target_path": file_path,
                     "summary": "Archivo candidato detectado para revisar con IA.",
                     "change": (
                         "Archivo candidato detectado desde el repositorio real. Pendiente de desarrollar con "
@@ -163,7 +166,6 @@ class MockTicketImpactAnalyzer(TicketImpactAnalyzer):
                     "current_code": "",
                     "suggested_code": "",
                     "instructions": ["Reanalizar con proveedor IA configurado para obtener un cambio localizado."],
-                    "diff": "",
                 }
                 for file_path in affected_files[:5]
             ]
@@ -171,6 +173,9 @@ class MockTicketImpactAnalyzer(TicketImpactAnalyzer):
             {
                 "file": "pendiente_de_conectar_repo",
                 "branch": branch,
+                "line_start": 0,
+                "line_end": 0,
+                "target_path": "",
                 "summary": "No hay repositorio conectado para generar diff.",
                 "change": (
                     "Pendiente de desarrollar: todavia no hay repositorio conectado. Cuando se configure el repo, "
@@ -180,6 +185,5 @@ class MockTicketImpactAnalyzer(TicketImpactAnalyzer):
                 "current_code": "",
                 "suggested_code": "",
                 "instructions": ["Configurar repo y rama en la empresa, y reintentar el analisis IA."],
-                "diff": "",
             },
         ]

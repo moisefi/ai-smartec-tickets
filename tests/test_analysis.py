@@ -21,7 +21,7 @@ async def test_analyze_ticket(client: AsyncClient) -> None:
             "title": "Cambio regulatorio",
             "description": "Adaptar el flujo de validacion por cambio regulatorio.",
             "company_id": company_id,
-            "type": "bug",
+            "type": "incidencia",
             "priority": "urgente",
         },
     )
@@ -40,8 +40,10 @@ async def test_analyze_ticket(client: AsyncClient) -> None:
     assert body["recommended_tasks"]
     assert body["proposed_changes"]
     assert "summary" in body["proposed_changes"][0]
+    assert "line_start" in body["proposed_changes"][0]
+    assert "line_end" in body["proposed_changes"][0]
+    assert "target_path" in body["proposed_changes"][0]
     assert "current_code" in body["proposed_changes"][0]
     assert "suggested_code" in body["proposed_changes"][0]
     assert "instructions" in body["proposed_changes"][0]
-    assert "diff" in body["proposed_changes"][0]
     assert "Pendiente de desarrollar" in body["proposed_changes"][0]["change"]

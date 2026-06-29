@@ -130,10 +130,10 @@ async def test_create_high_complexity_ticket_prefers_senior_user(client: AsyncCl
     create_response = await client.post(
         "/tickets",
         json={
-            "title": "Bug critico de facturacion",
+            "title": "Incidencia critica de facturacion",
             "description": "Corregir un fallo urgente en el calculo de facturacion.",
             "company_id": company_id,
-            "type": "bug",
+            "type": "incidencia",
             "priority": "urgente",
         },
     )
@@ -238,7 +238,7 @@ async def test_create_ticket_survives_initial_analysis_failure(client: AsyncClie
             "title": "Ticket con OpenAI caido",
             "description": "Debe crearse aunque el proveedor IA falle temporalmente.",
             "company_id": company_id,
-            "type": "bug",
+            "type": "incidencia",
             "priority": "urgente",
         },
     )
