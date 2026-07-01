@@ -15,6 +15,7 @@ from app.db.models.user import User
 from app.db.session import get_db
 from app.schemas.ticket import TicketCreate, TicketRead, TicketUpdate
 from app.services.analyzer_factory import get_configured_analyzer
+from app.services.repository import RepositoryReader
 from app.services.ticket_analysis_workflow import assign_ticket_from_analysis, generate_and_store_analysis
 
 router = APIRouter()
@@ -33,10 +34,12 @@ def user_facing_analysis_error(exc: Exception) -> str:
     return "No se ha podido analizar con la IA: error generico."
 
 
-async def ensure_company_exists(db: AsyncSession, company_id: int) -> None:
+async def ensure_company_exists(db: AsyncSession, company_id: int) -> Company:
     """Validate that a company exists."""
-    if await db.get(Company, company_id) is None:
+    company = await db.get(Company, company_id)
+    if company is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
+    return company
 
 
 async def ensure_user_exists(db: AsyncSession, user_id: int | None) -> None:
@@ -60,6 +63,22 @@ async def create_ticket(payload: TicketCreate, db: Annotated[AsyncSession, Depen
     try:
         await db.flush()
         await db.refresh(ticket, attribute_names=["company"])
+        repository_snapshot = await RepositoryReader().snapshot_for_company(
+            ticket.company,
+            f"{ticket.title}\n{ticket.description}",
+        )
+        if repository_snapshot and repository_snapshot.read_error:
+            logger.warning(
+                "Ticket %s was created without AI analysis because repository could not be read: %s",
+                ticket.id,
+                repository_snapshot.read_error,
+            )
+            ticket.analysis_error = (
+                "No se ha podido acceder al repositorio. Se ha creado un ticket basico sin analisis IA."
+            )
+            await db.commit()
+            await db.refresh(ticket)
+            return ticket
         try:
             analysis = await generate_and_store_analysis(db, ticket, get_configured_analyzer())
         except Exception as exc:

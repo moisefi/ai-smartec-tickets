@@ -1,11 +1,14 @@
 """Ticket endpoint tests."""
 
+from pathlib import Path
+
 from httpx import AsyncClient
 
 from app.api.routes import tickets as tickets_route
 from app.api.routes.analysis import get_analyzer
 from app.main import app
 from app.services.analysis import GeneratedTicketAnalysis, MockTicketImpactAnalyzer
+from app.services.repository import RepositorySnapshot
 
 
 class FailingAnalyzer:
@@ -13,6 +16,26 @@ class FailingAnalyzer:
 
     async def analyze(self, ticket) -> None:
         raise RuntimeError("OpenAI unavailable")
+
+
+class UnexpectedAnalyzer:
+    """Analyzer test double that must not be called."""
+
+    async def analyze(self, ticket) -> None:
+        raise AssertionError("AI analyzer should not be called")
+
+
+class InaccessibleRepositoryReader:
+    """Repository reader test double that simulates a Git access failure."""
+
+    async def snapshot_for_company(self, company, ticket_text: str) -> RepositorySnapshot:
+        return RepositorySnapshot(
+            repo_url=company.repo_url,
+            branch=company.repo_branch or "master",
+            local_path=Path("."),
+            candidate_files=[],
+            read_error="Repository not found",
+        )
 
 
 class FixedAnalyzer:
@@ -258,6 +281,43 @@ async def test_create_ticket_survives_initial_analysis_failure(client: AsyncClie
     assert retry_response.status_code == 201
     assert retry_response.json()["required_skill_level"] == "senior"
     assert updated_ticket.json()["assigned_user_id"] == 2
+
+
+async def test_create_ticket_skips_ai_when_repository_cannot_be_read(client: AsyncClient, monkeypatch) -> None:
+    """A repository access failure creates a basic ticket without invoking AI."""
+    monkeypatch.setattr(tickets_route, "RepositoryReader", lambda: InaccessibleRepositoryReader())
+    monkeypatch.setattr(tickets_route, "get_configured_analyzer", lambda: UnexpectedAnalyzer())
+    company_response = await client.post(
+        "/companies",
+        json={
+            "name": "RepoCaido",
+            "code": "REPO",
+            "description": "Empresa con repo inaccesible.",
+            "repo_url": "https://git.example.invalid/repo.git",
+            "repo_branch": "main",
+        },
+    )
+    company_id = company_response.json()["id"]
+
+    create_response = await client.post(
+        "/tickets",
+        json={
+            "title": "Ticket sin repo",
+            "description": "Debe crearse basico si el repo no se puede leer.",
+            "company_id": company_id,
+            "type": "tarea",
+            "priority": "media",
+        },
+    )
+    ticket = create_response.json()
+    analyses_response = await client.get(f"/tickets/{ticket['id']}/analyses")
+
+    assert create_response.status_code == 201
+    assert ticket["assigned_user_id"] is None
+    assert ticket["analysis_error"] == (
+        "No se ha podido acceder al repositorio. Se ha creado un ticket basico sin analisis IA."
+    )
+    assert analyses_response.json() == []
 
 
 async def test_create_ticket_without_configured_ai_has_no_fake_estimate(client: AsyncClient) -> None:

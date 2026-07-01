@@ -322,8 +322,7 @@ def render_tickets_tab() -> None:
             st.error(f"No se pudo crear el ticket: {exc}")
         else:
             if created_ticket.get("analysis_error"):
-                st.toast(created_ticket["analysis_error"])
-                st.error(created_ticket["analysis_error"])
+                st.session_state["pending_ticket_notice"] = created_ticket["analysis_error"]
             elif analyses:
                 st.success("Ticket creado, asignado y analizado correctamente.")
             else:
@@ -894,9 +893,12 @@ def main() -> None:
 
     st.set_page_config(page_title="AI SmartEC Tickets", layout="wide")
     st.title("AI SmartEC Tickets")
-    st.caption("Panel tipo Jira para gestionar tickets tecnicos, asignaciones y analisis de impacto.")
+    st.caption("Panel para gestionar tickets tecnicos, asignaciones y analisis de impacto.")
 
     render_status()
+    pending_ticket_notice = st.session_state.pop("pending_ticket_notice", None)
+    if pending_ticket_notice:
+        st.toast(pending_ticket_notice)
     can_manage = is_admin()
 
     tab_names = ["Tablero", "Tareas cerradas", "Crear ticket", "Empresas"]
