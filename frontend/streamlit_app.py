@@ -31,7 +31,7 @@ STATUS_LABELS = {
     "pendiente": "Pendiente",
     "en_curso": "En curso",
     "pruebas_internas": "Pruebas internas",
-    "qa": "QA",
+    "qa": "Validacion",
     "desplegado": "Desplegado",
     "cierre": "Cierre",
 }

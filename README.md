@@ -194,7 +194,7 @@ La demo funciona como panel tipo Jira interno y permite:
 
 - login real contra `POST /auth/login`
 - logout desde la barra lateral
-- ver un tablero por estados (`pendiente`, `en_curso`, `pruebas_internas`, `qa`, `desplegado`)
+- ver un tablero por estados (`pendiente`, `en_curso`, `pruebas_internas`, `validacion`, `desplegado`)
 - mover tareas a `cierre`; al cerrarlas salen del tablero principal y aparecen en `Tareas cerradas`
 - consultar `Tareas cerradas` con buscador y filtros por persona, empresa, prioridad y fecha
 - mover tickets entre fases arrastrando tarjetas con el raton
